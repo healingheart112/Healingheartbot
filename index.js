@@ -6,13 +6,17 @@ const {
     delay 
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
-const http = require('http'); // For the Keep-Alive server
+const http = require('http');
+const readline = require('readline'); // Added for terminal input
 
 // 🛡️ CONFIGURATION
-const myNumber = process.env.PHONE_NUMBER; 
 const PORT = process.env.PORT || 3000;
 
-// 1. KEEP-ALIVE SERVER (Prevents the panel from sleeping)
+// Setup terminal interface
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+
+// 1. KEEP-ALIVE SERVER
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Bot is Running');
@@ -29,20 +33,30 @@ async function startBot() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: 'silent' }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        browser: ["Ubuntu", "Chrome", "20.0.04"], // Important for pairing
         generateHighQualityLinkPreview: true,
         syncFullHistory: false
     });
 
-    // 🔑 PAIRING CODE LOGIC
+    // 🔑 PAIRING CODE LOGIC (Updated to ask you)
     if (!sock.authState.creds.registered) {
-        if (!myNumber) {
-            console.error("❌ PHONE_NUMBER variable missing in Panel!");
-            process.exit(1);
+        let phoneNumber = process.env.PHONE_NUMBER;
+
+        if (!phoneNumber) {
+            console.log("\n⚠️ PHONE_NUMBER not found in Panel settings.");
+            phoneNumber = await question('👉 Please type your WhatsApp number (e.g., 2348012345678): ');
         }
+
+        // Wait a few seconds for the connection to stabilize
         setTimeout(async () => {
-            let code = await sock.requestPairingCode(myNumber.replace(/[^0-9]/g, ''));
-            console.log(`\n💎 PAIRING CODE: ${code}\n`);
+            try {
+                let code = await sock.requestPairingCode(phoneNumber.replace(/[^0-9]/g, ''));
+                console.log(`\n💎 YOUR PAIRING CODE: ${code}\n`);
+                console.log("Go to WhatsApp > Linked Devices > Link with Phone Number to enter it.");
+            } catch (err) {
+                console.error("❌ Failed to get pairing code. Restarting...", err);
+                process.exit(1);
+            }
         }, 5000);
     }
 
@@ -50,9 +64,9 @@ async function startBot() {
 
     // 🛡️ ANTI-BAN REPLY LOGIC
     const safeReply = async (jid, text) => {
-        await delay(Math.floor(Math.random() * 2000) + 1500); // Human pause
-        await sock.sendPresenceUpdate('composing', jid); // Typing...
-        await delay(Math.min(text.length * 40, 3000)); // Typing speed
+        await delay(Math.floor(Math.random() * 2000) + 1500); 
+        await sock.sendPresenceUpdate('composing', jid); 
+        await delay(Math.min(text.length * 40, 3000)); 
         await sock.sendMessage(jid, { text });
         await sock.sendPresenceUpdate('paused', jid);
     };
